@@ -1,0 +1,29 @@
+{
+  "name": "inaworld",
+  "version": "0.0.0",
+  "description": "",
+  "main": "web.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@heroku.com:inaworld.git"
+  },
+  "keywords": [
+    "in",
+    "a",
+    "world",
+    "game",
+    "mobile"
+  ],
+  "author": "ricmatsui",
+  "license": "ISC",
+  "dependencies": {
+    "logfmt": "~0.21.0",
+    "express": "~3.4.8"
+  },
+  "engines": {
+    "node": "0.10.x"
+  }
+}
