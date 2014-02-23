@@ -1,0 +1,41 @@
+extends base
+
+block title
+  | Lobby
+
+block header-title
+  | Lobby
+  
+block content
+  if error
+    p.alert.alert-error= error
+  else
+    form(method='post')
+      if user.is_owner
+        h2 Get Some Friends To Join! 
+        p
+          | Have your friends go to:
+        p.alert
+          a(href='http://bit.ly/playinaworld') http://bit.ly/playinaworld
+        p
+          | And tell them to use your passphrase:
+        p.alert
+          strong= room.passphrase
+      h2 Current Players
+      if writers.length
+        each writer in writers
+          p 
+            = writer.name 
+            if user.uid == writer.uid
+              em   (You)
+            else
+              if user.is_owner
+                button(type='submit', class='btn', name='action_remove_'+writer.uid) X
+      else
+        p
+          em No players in this room
+      if user.is_owner
+        p
+          button(type='submit', class='btn btn-primary btn-block', name='action_start') Start Playing
+      else
+        p.alert Waiting to Start...

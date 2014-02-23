@@ -1,0 +1,27 @@
+extends base
+
+block title
+  | Create
+block header-title
+  | Create a Game
+
+block content
+  if error
+    p.alert.alert-error= error
+  p
+    | Enter a passphrase for your game.
+    br
+    | It can be any short phrase. 
+    br
+    | Be creative!
+  form(action='/create', method='post')
+    input(type='text', name='passphrase', placeholder='Passphrase', autocomplete='off', 
+        autocorrect='off', autocapitalize='off', autofocus='autofocus')
+    button(type='submit', class='btn btn-primary') Create
+  p.muted
+    | If a friend gave you a passphrase,
+    br
+    | then you can 
+    a(href='/join') join their game
+    | .
+  

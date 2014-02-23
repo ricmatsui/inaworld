@@ -1,0 +1,18 @@
+extends base
+
+block title
+  | Join
+block header-title
+  | Join a Game
+
+block content
+  if error
+    p.alert.alert-error= error
+  p
+    | Welcome to the game!
+    br
+    | Enter your pen name below:
+  form(method='post')
+    input(type='text', name='name', placeholder='Pen name', autofocus='autofocus')
+    button(type='submit', class='btn btn-primary') Submit
+  

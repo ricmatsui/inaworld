@@ -1,0 +1,22 @@
+extends base
+
+block title
+  | Join
+block header-title
+  | Join a Game
+
+block content
+  if error
+    p.alert.alert-error= error
+  p
+    | Enter the passphrase to your friend's game!
+  form(action='/join', method='post')
+    input(type='text', name='passphrase', placeholder='Passphrase', autocomplete='off', 
+        autocorrect='off', autocapitalize='off', autofocus='autofocus')
+    button(type='submit', class='btn btn-primary') Join
+  p.muted
+    | If you don't have a passphrase, 
+    br
+    a(href='/create') create a new game
+    | .
+  
