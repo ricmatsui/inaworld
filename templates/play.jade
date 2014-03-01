@@ -22,7 +22,11 @@ block scripts
   script.
     (function() {
       var room_uid = '#{room.uid}';
-      var writer_uid = '#{user.uid}';
+      var writer_uid = '#{user_uid}';
+      var waitTime = 0;
+      var retry = function(f) {
+        setTimeout(f, waitTime);
+      };
       $(document).ready(function() {
         var $startStoryForm = $('#start-story-form');
         var $temporaryWord = $('#temporary-word');
@@ -34,7 +38,7 @@ block scripts
           $temporaryWord.html(word);
           $word.val('');
           $.ajax({
-            url: '/api/1/add-word/'+room_uid+'/', 
+            url: '/api/1/add-word/'+room_uid+'/'+writer_uid+'/', 
             type: 'POST',
             cache: false,
             dataType: 'json',
@@ -52,6 +56,21 @@ block scripts
           
           });
         });
+        var checkRoom = function() {            
+          $.ajax({
+            url: '/api/1/polling/play/'+room_uid+'/', 
+            cache: false,
+            dataType: 'json'
+          }).done(function(data) {
+            if(data.result) {
+              $story.html(data.result.join(' '));
+            }
+            retry(checkRoom);
+          }).fail(function() {
+            retry(checkRoom);
+          });
+        };
+        checkRoom();
       });
     })();
   

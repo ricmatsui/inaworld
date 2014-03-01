@@ -9,6 +9,14 @@ var LONG_POLL_TIMEOUT = DEBUG ? 2000 : 20000;
 console.log(PASSPHRASE_TTL);
 
 // ======================
+// ERRORS
+var ERROR_TOO_MANY_PEOPLE = 'Oops, there are too many people playing, please try again later.';
+var ERROR_UNKNOWN = 'Oops, we ran into a problem. Please try again.';
+var ERROR_PASSPHRASE_TAKEN = 'Uh oh, someone has taken that passphrase for now, please try being more creative!';
+var ERROR_GONE = 'Oops, we couldn\'t find this game.'
+var ERROR_INCORRECT_PASSPHRASE = 'Oops, we couldn\'t find a game with that passphrase.'
+
+// ======================
 // REQUIRES
 require('newrelic');
 require('datejs');
@@ -19,14 +27,6 @@ var path = require('path');
 var Chance = require('chance');
 var debug = require('debug')('inaworld');
 var async = require('async');
-
-// ======================
-// ERRORS
-var ERROR_TOO_MANY_PEOPLE = 'Oops, there are too many people playing, please try again later.';
-var ERROR_UNKNOWN = 'Oops, we ran into a problem. Please try again.';
-var ERROR_PASSPHRASE_TAKEN = 'Uh oh, someone has taken that passphrase for now, please try being more creative!';
-var ERROR_GONE = 'Oops, we couldn\'t find this game.'
-var ERROR_INCORRECT_PASSPHRASE = 'Oops, we couldn\'t find a game with that passphrase.'
 
 // ======================
 // REDIS
@@ -65,10 +65,6 @@ passphrases.ensureIndex('expireAt', {expireAfterSeconds: 0});
 var rooms = db.get('rooms');
 rooms.ensureIndex('uid', {unique: true});
 rooms.ensureIndex('expireAt', {expireAfterSeconds: 0});
-
-var writers = db.get('writers');
-writers.ensureIndex('uid', {unique: true});
-writers.ensureIndex('expireAt', {expireAfterSeconds: 0});
 
 // ======================
 // RANDOM
@@ -267,27 +263,49 @@ app.get('/play/:room/:writer/', function(req, res) {
   }).on('error', function(e) {
     res.render('play', {error: ERROR_GONE});
   }).on('success', function(room_doc) {
-    writers.findOne({
-      uid: req.param('writer')
-    }).on('error', function(e) {
-      res.render('play', {error: ERROR_GONE});  
-    }).on('success', function(writer_doc) {
-      res.render('play', {room: room_doc, user: writer_doc});
-    });
+    res.render('play', {room: room_doc, user_uid: req.param('writer')});
   });
 });
-app.post('/api/1/add-word/:room/', function(req, res) {
+app.post('/api/1/add-word/:room/:writer/', function(req, res) {
   rooms.findAndModify({
     uid: req.param('room')
   }, {
     $push: { story: req.param('word') }
   }, {
-    new: true
+    new: true,
+    fields: { story: 1 }
   }).on('error', function(e) {
     res.json(500, {result: 'error'});
   }).on('success', function(room_doc) {
+    client = create_redis();
+    client.publish('room_play_'+req.param('room'), 
+        JSON.stringify(room_doc.story), function() { client.end() });
     res.json({result: room_doc.story});
   });
+});
+app.get('/api/1/polling/play/:room/', function(req, res) {
+  var client = create_redis();
+  client.on('message', function(channel, message) {
+    client.end();
+    res.json({'result': JSON.parse(message)});
+  });
+  client.subscribe('room_play_'+req.param('room'));  
+  setTimeout(function() {
+    client.end();
+    rooms.findOne({
+      uid: req.param('room')
+    }, {
+      story: 1
+    }).on('error', function(e) {
+      res.json(500, {'result': 'error'});
+    }).on('success', function(room_doc) {
+      if(room_doc) {
+        res.json({'result': room_doc.story});
+      } else {
+        res.json(500, {'result': 'error'});
+      }
+    });
+  }, LONG_POLL_TIMEOUT);
 });
 
 // CREATE
