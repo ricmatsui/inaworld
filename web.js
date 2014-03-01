@@ -1,6 +1,6 @@
 // ======================
 // OPTIONS
-DEBUG = true
+DEBUG = false
 process.env.DEBUG = 'monk:*'
 var PASSPHRASE_TTL = DEBUG ? 60 : 15 * 60;
 var ROOM_TTL = DEBUG ? 5*60 : 24*60*60;
@@ -26,6 +26,14 @@ var ERROR_UNKNOWN = 'Oops, we ran into a problem. Please try again.';
 var ERROR_PASSPHRASE_TAKEN = 'Uh oh, someone has taken that passphrase for now, please try being more creative!';
 var ERROR_GONE = 'Oops, we couldn\'t find this game.'
 var ERROR_INCORRECT_PASSPHRASE = 'Oops, we couldn\'t find a game with that passphrase.'
+
+// ======================
+// REDIS
+var redisURL = require('redis-url');
+function create_redis() {
+  return redisURL.connect(process.env.REDISTOGO_URL);
+}
+var redis = create_redis();
 
 // ======================
 // DATABASE
@@ -187,8 +195,18 @@ app.post('/lobby/:room/:writer/', function(req, res) {
                 complete();
               }
             }, function() {
-              if(req.param('action_start') && user_doc.is_owner) {
-                res.redirect('/play/'+req.param('room')+'/'+req.param('writer')+'/');
+              if('action_start' in req.body && user_doc.is_owner) {
+                redis.setex('room_status_'+req.param('room'), ROOM_TTL, false, function(e, result) {
+                  client = create_redis();
+                  client.publish('room_status_'+req.param('room'), true, function() {
+                    client.end();
+                  });
+                  if(e) {
+                    res.render('lobby', {error: ERROR_GONE});
+                  } else {
+                    res.redirect('/play/'+req.param('room')+'/'+req.param('writer')+'/');
+                  }
+                });
               } else {
                 writers.find({
                   room_uid: room_doc.uid
@@ -207,6 +225,59 @@ app.post('/lobby/:room/:writer/', function(req, res) {
     } else {
       res.render('lobby', {error: ERROR_GONE});
     }
+  });
+});
+app.get('/api/1/polling/started/:room/', function(req, res) {
+  var client = create_redis();
+  client.on('message', function(channel, message) {
+    client.end();
+    res.json({'result': message});
+  });
+  client.subscribe('room_status_'+req.param('room'));
+  redis.get('room_status_'+req.param('room'), function(e, result) {
+    if(e) {
+      client.end();
+      res.json(500, {'result': 'error'});
+    } else if(result) {        
+      client.end();
+      res.json({'result': true});
+    } else {
+      setTimeout(function() {
+        client.end();
+        res.json({'result': false});
+      }, 20000);
+    }
+  });
+});
+
+// PLAY
+
+app.get('/play/:room/:writer/', function(req, res) {
+  rooms.findOne({
+    uid: req.param('room')
+  }).on('error', function(e) {
+    res.render('play', {error: ERROR_GONE});
+  }).on('success', function(room_doc) {
+    writers.findOne({
+      uid: req.param('writer')
+    }).on('error', function(e) {
+      res.render('play', {error: ERROR_GONE});  
+    }).on('success', function(writer_doc) {
+      res.render('play', {room: room_doc, user: writer_doc});
+    });
+  });
+});
+app.post('/api/1/add-word/:room/', function(req, res) {
+  rooms.findAndModify({
+    uid: req.param('room')
+  }, {
+    $push: { story: req.param('word') }
+  }, {
+    new: true
+  }).on('error', function(e) {
+    res.json(500, {result: 'error'});
+  }).on('success', function(room_doc) {
+    res.json({result: room_doc.story});
   });
 });
 
@@ -256,7 +327,8 @@ function create_room(req, res, passphrase_doc) {
   rooms.insert({
     uid: make_uid(),
     expireAt: (new Date()).add(ROOM_TTL).second(),
-    passphrase: passphrase_doc.name
+    passphrase: passphrase_doc.name,
+    story: ['In', 'a', 'world']
   }).on('error', function(e) {
     console.log('CREATE ROOM: Error');
     res.render('create', {'error': ERROR_TOO_MANY_PEOPLE});

@@ -20,5 +20,10 @@ exports.config = {
      * production applications.
      */
     level : 'trace'
+  },
+  rules: {
+    ignore: [
+      '^/api/.*/polling/.*'
+    ]
   }
 };

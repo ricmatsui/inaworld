@@ -1,0 +1,57 @@
+extends base
+
+block title
+  | Join
+block header-title
+  | Join a Game
+
+block content
+  if error
+    p.alert.alert-error= error
+  h2
+    | Start a story!
+  form(id='start-story-form')
+    p(style='text-align: left')
+      span(id='story') In a world
+      span(id='temporary-word')
+      | 
+      input(id='word', type='text', name='word', placeholder='Word', autocapitalize='off', autofocus='autofocus', size=5)
+    button(type='submit', class='btn btn-primary') Submit
+
+block scripts
+  script.
+    (function() {
+      var room_uid = '#{room.uid}';
+      var writer_uid = '#{user.uid}';
+      $(document).ready(function() {
+        var $startStoryForm = $('#start-story-form');
+        var $temporaryWord = $('#temporary-word');
+        var $word = $('#word');
+        var $story = $('#story');
+        $startStoryForm.submit(function(e) {
+          e.preventDefault();
+          var word = $word.val();
+          $temporaryWord.html(word);
+          $word.val('');
+          $.ajax({
+            url: '/api/1/add-word/'+room_uid+'/', 
+            type: 'POST',
+            cache: false,
+            dataType: 'json',
+            data: {
+              word: word
+            }
+          }).done(function(data) {
+            if(data.result) {
+              $temporaryWord.html('');
+              $story.html(data.result.join(' '));
+            } else {
+            
+            }
+          }).fail(function() {
+          
+          });
+        });
+      });
+    })();
+  

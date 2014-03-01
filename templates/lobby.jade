@@ -39,3 +39,30 @@ block content
           button(type='submit', class='btn btn-primary btn-block', name='action_start') Start Playing
       else
         p.alert Waiting to Start...
+
+block scripts
+  if room
+    script.
+      (function() {
+        var room_uid = '#{room.uid}';
+        var writer_uid = '#{user.uid}';
+        var waitTime = 1000;
+        $(document).ready(function() {
+          var checkReady = function() {            
+            $.ajax({
+              url: '/api/1/polling/started/'+room_uid+'/', 
+              cache: false,
+              dataType: 'json'
+            }).done(function(data) {
+              if(data.result) {
+                window.location = '/play/'+room_uid+'/'+writer_uid+'/';
+              } else {
+                setTimeout(checkReady, waitTime);
+              }
+            }).fail(function() {
+              setTimeout(checkReady, waitTime);
+            });
+          };
+          checkReady();
+        });
+      })();
