@@ -31,7 +31,8 @@
     "chance": "~0.5.4",
     "debug": "~0.7.4",
     "async": "~0.2.10",
-    "templatizer": "~0.2.10"
+    "templatizer": "~0.2.10",
+    "redis": "~0.10.1"
   },
   "engines": {
     "node": "0.10.x"

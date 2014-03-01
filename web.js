@@ -31,10 +31,22 @@ var ERROR_INCORRECT_PASSPHRASE = 'Oops, we couldn\'t find a game with that passp
 // ======================
 // REDIS
 var redisURL = require('redis-url');
+var redis = redisURL.connect(process.env.REDISTOGO_URL);
+var password, database, url = require('url');
+var parsedUrl  = url.parse(process.env.REDISTOGO_URL || '');
+var parsedAuth = (parsedUrl.auth || '').split(':');
+
 function create_redis() {
-  return redisURL.connect(process.env.REDISTOGO_URL);
+  var redis = require('redis').createClient(parsedUrl.port, parsedUrl.hostname);
+
+  if (password = parsedAuth[1]) {
+      redis.auth(password, function(err) {
+          if (err) throw err;
+      });
+  }
+  
+  return redis;
 }
-var redis = create_redis();
 
 // ======================
 // DATABASE
