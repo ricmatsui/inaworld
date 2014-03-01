@@ -11,7 +11,7 @@ block content
     p.alert.alert-error= error
   else
     form(method='post')
-      if user.is_owner
+      if room.owner_uid == user_uid
         h2 Get Some Friends To Join! 
         p
           | Have your friends go to:
@@ -22,47 +22,59 @@ block content
         p.alert
           strong= room.passphrase
       h2 Current Players
-      if writers.length
-        each writer in writers
-          p 
-            = writer.name 
-            if user.uid == writer.uid
-              em   (You)
-            else
-              if user.is_owner
-                button(type='submit', class='btn', name='action_remove_'+writer.uid) X
-      else
-        p
-          em No players in this room
-      if user.is_owner
+      div#players
+        mixin show_room(room, user_uid)
+      if room.owner_uid == user_uid
         p
           button(type='submit', class='btn btn-primary btn-block', name='action_start') Start Playing
       else
         p.alert Waiting to Start...
 
+mixin show_room(room, user_uid)
+  if room.writers.length
+    each writer in room.writers
+      p 
+        = writer.name
+        if user_uid == writer.uid
+          em   (You)
+        else
+          if room.owner_uid == user_uid
+            button(type='submit', class='btn', name='action_remove_'+writer.uid) X
+  else
+    p
+      em No players in this room
+        
 block scripts
   if room
     script.
       (function() {
-        var room_uid = '#{room.uid}';
-        var writer_uid = '#{user.uid}';
-        var waitTime = 1000;
+        var room = {uid: '#{room.uid}', owner_uid: '#{room.owner_uid}'};
+        var user_uid = '#{user_uid}';
+        var waitTime = 2000;
         $(document).ready(function() {
-          var checkReady = function() {            
+          $players = $('#players');
+          var retry = function(f) {
+            setTimeout(f, waitTime);
+          };
+          var checkLobby = function() {            
             $.ajax({
-              url: '/api/1/polling/started/'+room_uid+'/', 
+              url: '/api/1/polling/lobby/'+room.uid+'/', 
               cache: false,
               dataType: 'json'
             }).done(function(data) {
-              if(data.result) {
-                window.location = '/play/'+room_uid+'/'+writer_uid+'/';
+              if(data.result.status) {
+                window.location = '/play/'+room.uid+'/'+user_uid+'/';
               } else {
-                setTimeout(checkReady, waitTime);
+                if(data.result.writers) {
+                    room.writers = data.result.writers;
+                    $players.html(templatizer.lobby.show_room(room, user_uid));
+                }
+                retry(checkLobby);
               }
             }).fail(function() {
-              setTimeout(checkReady, waitTime);
+              retry(checkLobby);
             });
           };
-          checkReady();
+          checkLobby();
         });
       })();

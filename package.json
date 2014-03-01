@@ -4,7 +4,8 @@
   "description": "",
   "main": "web.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "postinstall": "node compile_templates.js"
   },
   "repository": {
     "type": "git",
@@ -29,7 +30,8 @@
     "datejs": "~1.0.0-beta",
     "chance": "~0.5.4",
     "debug": "~0.7.4",
-    "async": "~0.2.10"
+    "async": "~0.2.10",
+    "templatizer": "~0.2.10"
   },
   "engines": {
     "node": "0.10.x"

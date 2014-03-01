@@ -5,6 +5,7 @@ process.env.DEBUG = 'monk:*'
 var PASSPHRASE_TTL = DEBUG ? 60 : 15 * 60;
 var ROOM_TTL = DEBUG ? 5*60 : 24*60*60;
 var WRITER_TTL = DEBUG ? 5*60 : 24*60*60;
+var LONG_POLL_TIMEOUT = DEBUG ? 2000 : 20000;
 console.log(PASSPHRASE_TTL);
 
 // ======================
@@ -100,17 +101,7 @@ app.post('/join', function(req, res) {
     res.render('join', {error: ERROR_INCORRECT_PASSPHRASE});
   }).on('success', function(passphrase_doc) {
     if(passphrase_doc) {
-      writers.insert({
-        uid: make_uid(),
-        is_owner: false,
-        room_uid: passphrase_doc.room_uid,
-        name: 'Anonymous',
-        expireAt: (new Date()).add(WRITER_TTL).second()
-      }).on('error', function(e) {
-        res.render('create', {'error': ERROR_TOO_MANY_PEOPLE});
-      }).on('success', function(writer_doc) {
-        res.redirect('/join/'+passphrase_doc.room_uid+'/'+writer_doc.uid+'/');
-      });
+      res.redirect('/join/'+passphrase_doc.room_uid+'/'+make_uid()+'/');
     } else {
       res.render('join', {error: ERROR_INCORRECT_PASSPHRASE});
     }
@@ -123,13 +114,19 @@ app.get('/join/:room/:writer/', function(req, res) {
   res.render('join_room');
 });
 app.post('/join/:room/:writer/', function(req, res) {
-  writers.update({
-    uid: req.param('writer'),
+  rooms.findAndModify({
+    uid: req.param('room'),
   }, {
-    $set: { name: req.param('name') }
+    $push: { writers: { uid: req.param('writer'), name: req.param('name') }}
+  }, {
+    new: true
   }).on('error', function(e) {
     res.render('join_room', {error: ERROR_UNKNOWN});
-  }).on('success', function() {
+  }).on('success', function(room_doc) {
+    client = create_redis();
+    client.publish('room_lobby_'+req.param('room'), JSON.stringify({
+      writers: room_doc.writers
+    }), function() { client.end() });
     res.redirect('/lobby/'+req.param('room')+'/'+req.param('writer')+'/');
   });
 });
@@ -143,25 +140,9 @@ app.get('/lobby/:room/:writer/', function(req, res) {
     res.render('lobby', {error: ERROR_GONE});
   }).on('success', function(room_doc) {
     if(room_doc) {
-      writers.find({
-        room_uid: room_doc.uid
-      }).on('error', function(e) {
-        res.render('lobby', {error: ERROR_GONE});      
-      }).on('success', function(writer_docs) {
-        writers.findOne({
-          uid: req.param('writer')
-        }).on('error', function(e) {
-          res.render('lobby', {error: ERROR_GONE});
-        }).on('success', function(user_doc) {
-          if(user_doc) {
-            res.render('lobby', {writers: writer_docs, room: room_doc, user: user_doc});
-          } else {
-            res.render('lobby', {error: ERROR_GONE});
-          }
-        });
-      });
+      res.render('lobby', {room: room_doc, user_uid: req.param('writer')});
     } else {
-      res.render('lobby', {error: ERROR_GONE});    
+      res.render('lobby', {error: ERROR_GONE});
     }
   });
 });
@@ -172,80 +153,96 @@ app.post('/lobby/:room/:writer/', function(req, res) {
     res.render('lobby', {error: ERROR_GONE});
   }).on('success', function(room_doc) {
     if(room_doc) {
-      writers.find({
-        room_uid: room_doc.uid
-      }).on('error', function(e) {
-        res.render('lobby', {error: ERROR_GONE});
-      }).on('success', function(writer_docs) {
-        writers.findOne({
-          uid: req.param('writer')
-        }).on('error', function(e) {
-          res.render('lobby', {error: ERROR_GONE});
-        }).on('success', function(user_doc) {
-          if(user_doc.is_owner) {
-            async.each(writer_docs, function(writer_doc, complete) {
-              if('action_remove_'+writer_doc.uid in req.body) {
-                writers.remove({
-                  uid: writer_doc.uid
-                }, function() {
-                  console.log(arguments);
-                  complete();
-                });
-              } else {
-                complete();
-              }
-            }, function() {
-              if('action_start' in req.body && user_doc.is_owner) {
-                redis.setex('room_status_'+req.param('room'), ROOM_TTL, false, function(e, result) {
-                  client = create_redis();
-                  client.publish('room_status_'+req.param('room'), true, function() {
-                    client.end();
-                  });
-                  if(e) {
+      if(room_doc.owner_uid == req.param('writer')) {
+        async.series([
+          function(complete) {
+            async.map(room_doc.writers, function(writer, complete) {
+              complete(null, writer.uid);
+            }, function(err, writer_uids) {
+              async.filter(writer_uids, function(writer_uid, complete) {
+                complete('action_remove_'+writer_uid in req.body);
+              }, function(writer_uids_to_remove) {
+                if(writer_uids_to_remove) {
+                  console.log('remove', writer_uids_to_remove);
+                  rooms.findAndModify({
+                    uid: req.param('room')
+                  }, {
+                    $pull: { writers: { uid: { $in: writer_uids_to_remove }}}
+                  }, {
+                    new: true
+                  }).on('error', function(e) {
+                    console.log(e);
                     res.render('lobby', {error: ERROR_GONE});
-                  } else {
-                    res.redirect('/play/'+req.param('room')+'/'+req.param('writer')+'/');
-                  }
-                });
-              } else {
-                writers.find({
-                  room_uid: room_doc.uid
-                }).on('error', function(e) {
-                  res.render('lobby', {error: ERROR_GONE});
-                }).on('success', function(writer_docs) {
-                  res.render('lobby', {writers: writer_docs, room: room_doc, user: user_doc});
-                });
-              }
+                    complete();
+                  }).on('success', function(new_room_doc) {
+                    room_doc = new_room_doc;
+                    complete();
+                  });
+                } else {
+                  complete();
+                }
+              });
             });
-          } else {
-            res.render('lobby', {writers: writer_docs, room: room_doc, user: user_doc});
+          },
+          function(complete) {
+            if('action_start' in req.body) {
+              redis.setex('room_status_'+req.param('room'), ROOM_TTL, true, function(e, result) {
+                client = create_redis();
+                client.publish('room_lobby_'+req.param('room'), JSON.stringify({
+                  'status': true
+                }), function() { client.end() });
+                if(e) {
+                  res.render('lobby', {error: ERROR_GONE});
+                  complete();
+                } else {
+                  res.redirect('/play/'+req.param('room')+'/'+req.param('writer')+'/');
+                  complete(null, 'redirected');
+                }
+              });
+            } else {
+              complete();
+            }
+          }
+        ], function(err, results) {
+          if(results.indexOf('redirected') == -1) {
+            res.render('lobby', {room: room_doc, user_uid: req.param('writer')});
           }
         });
-      });
+      }
     } else {
       res.render('lobby', {error: ERROR_GONE});
     }
   });
 });
-app.get('/api/1/polling/started/:room/', function(req, res) {
+app.get('/api/1/polling/lobby/:room/', function(req, res) {
   var client = create_redis();
   client.on('message', function(channel, message) {
     client.end();
-    res.json({'result': message});
+    res.json({'result': JSON.parse(message)});
   });
-  client.subscribe('room_status_'+req.param('room'));
+  client.subscribe('room_lobby_'+req.param('room'));
   redis.get('room_status_'+req.param('room'), function(e, result) {
     if(e) {
       client.end();
       res.json(500, {'result': 'error'});
     } else if(result) {        
       client.end();
-      res.json({'result': true});
+      res.json({'result': {'status': true}});
     } else {
       setTimeout(function() {
         client.end();
-        res.json({'result': false});
-      }, 20000);
+        rooms.findOne({
+          uid: req.param('room')
+        }).on('error', function(e) {
+          res.json(500, {'result': 'error'});
+        }).on('success', function(room_doc) {
+          if(room_doc) {
+            res.json({'result': {'status': false, 'writers': room_doc.writers}});
+          } else {
+            res.json(500, {'result': 'error'});
+          }
+        });
+      }, LONG_POLL_TIMEOUT);
     }
   });
 });
@@ -324,37 +321,27 @@ app.post('/create', function(req, res) {
 });
 
 function create_room(req, res, passphrase_doc) {
+  owner_uid = make_uid();
   rooms.insert({
     uid: make_uid(),
     expireAt: (new Date()).add(ROOM_TTL).second(),
     passphrase: passphrase_doc.name,
-    story: ['In', 'a', 'world']
+    story: ['In', 'a', 'world'],
+    writers: [],
+    owner_uid: owner_uid
   }).on('error', function(e) {
     console.log('CREATE ROOM: Error');
     res.render('create', {'error': ERROR_TOO_MANY_PEOPLE});
   }).on('success', function(room_doc) {
-    writers.insert({
-      uid: make_uid(),
-      is_owner: true,
-      room_uid: room_doc.uid,
-      name: 'Anonymous',
-      expireAt: (new Date()).add(WRITER_TTL).second()
+    passphrases.updateById(passphrase_doc._id, {
+      $set: { room_uid: room_doc.uid }
     }).on('error', function(e) {
-      console.log('CREATE ROOM: Writer error');
-      res.render('create', {'error': ERROR_TOO_MANY_PEOPLE});
-    }).on('success', function(writer_doc) {
-      passphrases.updateById(passphrase_doc._id, {
-        $set: { room_uid: room_doc.uid }
-      }).on('error', function(e) {
-        console.log('CREATE ROOM: Update passphrase error');
-        res.render('create', {'error': ERROR_UNKNOWN});
-      }).on('success', function() {
-        //res.render('create', {'error': ERROR_UNKNOWN});
-        res.redirect('/join/'+room_doc.uid+'/'+writer_doc.uid+'/');
-      });
+      console.log('CREATE ROOM: Update passphrase error');
+      res.render('create', {'error': ERROR_UNKNOWN});
+    }).on('success', function() {
+      res.redirect('/join/'+room_doc.uid+'/'+owner_uid+'/');
     });
   });
-  
 }
 
 // RUN
