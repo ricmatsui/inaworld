@@ -1,18 +1,17 @@
 extends base
 
 block title
-  | Join
+  | Play
 block header-title
-  | Join a Game
+  | Write a Story
 
 block content
   if error
     p.alert.alert-error= error
-  h2
-    | Start a story!
   form(id='start-story-form')
     p(style='text-align: left')
       span(id='story') In a world
+      | 
       span(id='temporary-word')
       | 
       input(id='word', type='text', name='word', placeholder='Word', autocapitalize='off', autofocus='autofocus', size=5)
