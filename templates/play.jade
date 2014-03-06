@@ -47,8 +47,18 @@ block scripts
             }
           }).done(function(data) {
             if(data.result) {
-              $temporaryWord.html('');
-              $story.html(data.result.join(' '));
+              if(data.result == 'wrong-turn') {
+                $word.attr('disabled', 'disabled');
+              } else {
+                $temporaryWord.html('');
+                $story.html(data.result.story.join(' '));
+                
+                if(data.result.turns[0] == writer_uid) {
+                  $word.removeAttr('disabled');
+                } else {
+                  $word.attr('disabled', 'disabled');
+                }
+              }
             } else {
             
             }
@@ -63,7 +73,13 @@ block scripts
             dataType: 'json'
           }).done(function(data) {
             if(data.result) {
-              $story.html(data.result.join(' '));
+              $story.html(data.result.story.join(' '));
+            
+              if(data.result.turns[0] == writer_uid) {
+                $word.removeAttr('disabled');
+              } else {
+                $word.attr('disabled', 'disabled');
+              }
             }
             retry(checkRoom);
           }).fail(function() {
