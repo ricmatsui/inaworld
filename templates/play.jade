@@ -10,11 +10,17 @@ block content
     p.alert.alert-error= error
   form(id='start-story-form')
     p(style='text-align: left')
-      span(id='story') In a world
+      span(id='story')
+        each word in room.story
+          = word
+          | 
       | 
       span(id='temporary-word')
       | 
-      input(id='word', type='text', name='word', placeholder='Word', autocapitalize='off', autofocus='autofocus', size=5)
+      if user_uid == room.turns[0]
+        input(id='word', type='text', name='word', placeholder='Word', autocapitalize='off', autofocus='autofocus', size=5)
+      else
+        input(id='word', type='text', name='word', placeholder='Word', autocapitalize='off', autofocus='autofocus', size=5, disabled='disabled')
     button(type='submit', class='btn btn-primary') Submit
 
 block scripts
@@ -34,36 +40,38 @@ block scripts
         $startStoryForm.submit(function(e) {
           e.preventDefault();
           var word = $word.val();
-          $temporaryWord.html(word);
-          $word.val('');
-          $.ajax({
-            url: '/api/1/add-word/'+room_uid+'/'+writer_uid+'/', 
-            type: 'POST',
-            cache: false,
-            dataType: 'json',
-            data: {
-              word: word
-            }
-          }).done(function(data) {
-            if(data.result) {
-              if(data.result == 'wrong-turn') {
-                $word.attr('disabled', 'disabled');
-              } else {
-                $temporaryWord.html('');
-                $story.html(data.result.story.join(' '));
-                
-                if(data.result.turns[0] == writer_uid) {
-                  $word.removeAttr('disabled');
-                } else {
-                  $word.attr('disabled', 'disabled');
-                }
+          if(word) {
+            $temporaryWord.html(word);
+            $word.val('');
+            $.ajax({
+              url: '/api/1/add-word/'+room_uid+'/'+writer_uid+'/', 
+              type: 'POST',
+              cache: false,
+              dataType: 'json',
+              data: {
+                word: word
               }
-            } else {
+            }).done(function(data) {
+              if(data.result) {
+                if(data.result == 'wrong-turn') {
+                  $word.attr('disabled', 'disabled');
+                } else {
+                  $temporaryWord.html('');
+                  $story.html(data.result.story.join(' '));
+                  
+                  if(data.result.turns[0] == writer_uid) {
+                    $word.removeAttr('disabled');
+                  } else {
+                    $word.attr('disabled', 'disabled');
+                  }
+                }
+              } else {
+              
+              }
+            }).fail(function() {
             
-            }
-          }).fail(function() {
-          
-          });
+            });
+          }
         });
         var checkRoom = function() {            
           $.ajax({

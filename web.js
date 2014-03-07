@@ -333,39 +333,55 @@ app.get('/play/:room/:writer/', function(req, res) {
 });
 app.post('/api/1/add-word/:room/:writer/', function(req, res) {
   word = req.param('word').split(/\s/)[0];
-  rooms.findAndModify({
-    uid: req.param('room'),
-    "turns.0": req.param('writer')
-  }, {
-    $push: { 
-      story: word,
-      turns: req.param('writer')
-    }
-  }, {
-    fields: { _id: 1}
-  }).on('error', function(e) {
-    res.json(500, {result: 'error'});
-  }).on('success', function(room_doc) {
-    if(room_doc) {
-      rooms.findAndModify({
-        _id: room_doc._id
-      }, {
-        $pop: { turns: -1 }
-      }, {
-        new: true,
-        fields: { story: 1, turns: 1}
-      }).on('error', function(e) {
-        res.json(500, {result: 'error'});
-      }).on('success', function(room_doc) {
-        var payload = {story: room_doc.story, turns: room_doc.turns};
-        redis_pub.publish('room_play_'+req.param('room'), 
-            JSON.stringify(payload));
-        res.json({result: payload});
-      });
-    } else {
-      res.json({result: 'wrong-turn'});
-    }
-  });
+  if(word) {
+    redis.getset('room_adding_word_'+req.param('room'), 1, function(e, old_value) {
+      if(e) {
+        return res.json(500, {result: 'error'});
+      } else if(old_value) {
+        return res.json({result: 'wrong-turn'});
+      } else {
+        rooms.findAndModify({
+          uid: req.param('room'),
+          "turns.0": req.param('writer')
+        }, {
+          $push: { 
+            story: word,
+            turns: req.param('writer')
+          }
+        }, {
+          fields: { _id: 1}
+        }).on('error', function(e) {
+          res.json(500, {result: 'error'});
+        }).on('success', function(room_doc) {
+          //setTimeout(function() {
+          if(room_doc) {
+            rooms.findAndModify({
+              _id: room_doc._id
+            }, {
+              $pop: { turns: -1 }
+            }, {
+              new: true,
+              fields: { story: 1, turns: 1}
+            }).on('error', function(e) {
+              res.json(500, {result: 'error'});
+            }).on('success', function(room_doc) {
+              redis.del('room_adding_word_'+req.param('room'), function(e, result) {
+                var payload = {story: room_doc.story, turns: room_doc.turns};
+                redis_pub.publish('room_play_'+req.param('room'), 
+                    JSON.stringify(payload));
+                res.json({result: payload});
+              });
+            });
+          } else {
+            res.json({result: 'wrong-turn'});
+          }
+          //}, 1000);
+        });
+      }
+    });
+  } else {
+    res.json({result: 'empty-word'});
+  }
 });
 app.get('/api/1/polling/play/:room/', function(req, res) {
   subscribe_long_polling(req, 'room_play_'+req.param('room'), function(result) {
