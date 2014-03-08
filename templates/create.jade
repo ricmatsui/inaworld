@@ -14,7 +14,7 @@ block content
     | It can be any short phrase. 
     br
     | Be creative!
-  form(action='/create', method='post')
+  form(method='post')
     input(type='text', name='passphrase', placeholder='Passphrase', autocomplete='off', 
         autocorrect='off', autocapitalize='off', autofocus='autofocus')
     button(type='submit', class='btn btn-primary') Create
@@ -22,6 +22,6 @@ block content
     | If a friend gave you a passphrase,
     br
     | then you can 
-    a(href='/join') join their game
+    a(href='/join/') join their game
     | .
   

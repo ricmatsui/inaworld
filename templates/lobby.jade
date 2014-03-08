@@ -11,6 +11,8 @@ block content
     p.alert.alert-error= error
   else
     form(method='post')
+      #room
+        mixin show_room(room, user_uid)
       if room.owner_uid == user_uid
         h2 Get Some Friends To Join! 
         p
@@ -21,28 +23,29 @@ block content
           | And tell them to use your passphrase:
         p.alert
           strong= room.passphrase
-      h2 Current Players
-      div#players
-        mixin show_room(room, user_uid)
-      if room.owner_uid == user_uid
-        p
-          button(type='submit', class='btn btn-primary btn-block', name='action_start') Start Playing
-      else
-        p.alert Waiting to Start...
 
 mixin show_room(room, user_uid)
-  if room.writers.length
-    each writer in room.writers
-      p 
-        = writer.name
-        if user_uid == writer.uid
-          em   (You)
-        else
-          if room.owner_uid == user_uid
-            button(type='submit', class='btn', name='action_remove_'+writer.uid) X
+  h2 Current Players
+  div#players
+    if room.writers.length
+      each writer in room.writers
+        p 
+          = writer.name
+          if user_uid == writer.uid
+            em   (You)
+          else
+            if room.owner_uid == user_uid
+              |  
+              button(type='submit', class='btn', name='action_remove_'+writer.uid) X
+    else
+      p
+        em No players in this room
+  if room.owner_uid == user_uid
+    if room.writers.length > 1
+      p
+        button(type='submit', class='btn btn-primary btn-block', name='action_start') Start Playing
   else
-    p
-      em No players in this room
+    p.alert Waiting to Start...
         
 block scripts
   if room
@@ -52,7 +55,7 @@ block scripts
         var user_uid = '#{user_uid}';
         var waitTime = 2000;
         $(document).ready(function() {
-          $players = $('#players');
+          $room = $('#room');
           var retry = function(f) {
             setTimeout(f, waitTime);
           };
@@ -67,7 +70,7 @@ block scripts
               } else {
                 if(data.result.writers) {
                     room.writers = data.result.writers;
-                    $players.html(templatizer.lobby.show_room(room, user_uid));
+                    $room.html(templatizer.lobby.show_room(room, user_uid));
                 }
                 retry(checkLobby);
               }

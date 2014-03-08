@@ -2,25 +2,29 @@ extends base
 
 block title
   | Play
-block header-title
-  | Write a Story
+block header
+  div#header(style='position: relative')
+    h1#title
+      | Write a Story
 
 block content
   if error
     p.alert.alert-error= error
-  form(id='start-story-form')
+  form#start-story-form
     p(style='text-align: left')
-      span(id='story')
+      span#story
         each word in room.story
           = word
           | 
       | 
-      span(id='temporary-word')
+      span#temporary-word
       | 
       if user_uid == room.turns[0]
-        input(id='word', type='text', name='word', placeholder='Word', autocapitalize='off', autofocus='autofocus', size=5)
+        input#word.input-inline.input-primary(type='text', name='word', placeholder='Word', autocapitalize='off', autofocus='autofocus', size=6)
       else
-        input(id='word', type='text', name='word', placeholder='Word', autocapitalize='off', autofocus='autofocus', size=5, disabled='disabled')
+        input#word.input-inline(type='text', name='word', placeholder='Word', autocapitalize='off', autofocus='autofocus', size=6, disabled='disabled')
+      |  
+      span#status.muted= status
     button(type='submit', class='btn btn-primary') Submit
 
 block scripts
@@ -37,12 +41,38 @@ block scripts
         var $temporaryWord = $('#temporary-word');
         var $word = $('#word');
         var $story = $('#story');
+        var $status = $('#status');
+        var updateWord = function(data) {
+          if(data.result.turns[0] == writer_uid) {
+            $word.removeAttr('disabled');
+            $word.addClass('input-primary');
+          } else {
+            //$word.attr('disabled', 'disabled');
+            $word.removeClass('input-primary');
+          }
+        };
+        var updateStory = function(data) {
+          $story.html(data.result.story.join(' '));
+        };
+        var updateTurn = function(data) {
+          var position = data.result.turns.indexOf(writer_uid);
+          if(position == 0) {
+            $status.html('');
+          } else {
+            if(data.result.turns.length > 2) {
+              $status.html('('+position+')');
+            } else {
+              $status.html('(waiting)');
+            }
+          }
+        };
         $startStoryForm.submit(function(e) {
           e.preventDefault();
           var word = $word.val();
           if(word) {
             $temporaryWord.html(word);
             $word.val('');
+            $word.trigger('click');
             $.ajax({
               url: '/api/1/add-word/'+room_uid+'/'+writer_uid+'/', 
               type: 'POST',
@@ -53,40 +83,30 @@ block scripts
               }
             }).done(function(data) {
               if(data.result) {
-                if(data.result == 'wrong-turn') {
-                  $word.attr('disabled', 'disabled');
-                } else {
-                  $temporaryWord.html('');
-                  $story.html(data.result.story.join(' '));
-                  
-                  if(data.result.turns[0] == writer_uid) {
-                    $word.removeAttr('disabled');
-                  } else {
-                    $word.attr('disabled', 'disabled');
-                  }
+                $temporaryWord.html('');
+                if(data.result != 'wrong-turn') {
+                  updateStory(data);
+                  updateWord(data);
+                  updateTurn(data);
                 }
               } else {
               
               }
             }).fail(function() {
-            
+              
             });
           }
         });
         var checkRoom = function() {            
           $.ajax({
-            url: '/api/1/polling/play/'+room_uid+'/', 
+            url: '/api/1/polling/play/'+room_uid+'/'+writer_uid+'/', 
             cache: false,
             dataType: 'json'
           }).done(function(data) {
             if(data.result) {
-              $story.html(data.result.story.join(' '));
-            
-              if(data.result.turns[0] == writer_uid) {
-                $word.removeAttr('disabled');
-              } else {
-                $word.attr('disabled', 'disabled');
-              }
+              updateStory(data);
+              updateWord(data);
+              updateTurn(data);
             }
             retry(checkRoom);
           }).fail(function() {

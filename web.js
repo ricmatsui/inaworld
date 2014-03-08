@@ -16,6 +16,10 @@ var ERROR_PASSPHRASE_TAKEN = 'Uh oh, someone has taken that passphrase for now, 
 var ERROR_GONE = 'Oops, we couldn\'t find this game.'
 var ERROR_INCORRECT_PASSPHRASE = 'Oops, we couldn\'t find a game with that passphrase.'
 
+function render_gone(res) {
+  res.render('gone', {error: ERROR_GONE});
+}
+
 // ======================
 // REQUIRES
 require('newrelic');
@@ -69,7 +73,8 @@ function setup_long_polling(sub_channel, callback) {
   redis.setex(sub_channel_key, ROOM_TTL, 0, callback);
 }
 function subscribe_long_polling(req, sub_channel, 
-    message_callback, immediate_callback, poll_timeout_callback) {
+    accept_message_callback, message_callback, 
+    immediate_callback, poll_timeout_callback) {
   var sub_channel_key = redis_uid+'_'+sub_channel;
   var incremented = false;
   var timeout;
@@ -85,10 +90,11 @@ function subscribe_long_polling(req, sub_channel,
       });
     }
   };
-  var on_message = function(channel, message) {
-    if(channel == sub_channel) {
+  var on_message = function(channel, message_str) {
+    message = JSON.parse(message_str);
+    if(channel == sub_channel && accept_message_callback(message)) {
       unsub();
-      message_callback(JSON.parse(message));
+      message_callback(message);
     }
   };
   req.on('close', unsub);
@@ -119,6 +125,22 @@ function subscribe_long_polling(req, sub_channel,
       });
     }
   ]);
+}
+
+function critical_section(key, lock_callback, fail_callback) {
+  redis.getset(key, 1, function(e, old_value) {
+    if(e) {
+      fail_callback(e);
+    } else if(old_value) {
+      fail_callback();
+    } else {
+      lock_callback(function(complete) {
+        redis.del(key, function(e, result) {
+          complete();
+        });
+      });
+    }
+  });
 }
 
 // ======================
@@ -159,10 +181,10 @@ app.get('/', function(req, res) {
 
 // JOIN
 
-app.get('/join', function(req, res) {
+app.get('/join/', function(req, res) {
   res.render('join')
 });
-app.post('/join', function(req, res) {
+app.post('/join/', function(req, res) {
   passphrases.findOne({
     name: req.param('passphrase')
   }).on('error', function(e) {
@@ -204,12 +226,12 @@ app.get('/lobby/:room/:writer/', function(req, res) {
   rooms.findOne({
     uid: req.param('room')
   }).on('error', function(e) {
-    res.render('lobby', {error: ERROR_GONE});
+    render_gone(res);
   }).on('success', function(room_doc) {
     if(room_doc) {
       res.render('lobby', {room: room_doc, user_uid: req.param('writer')});
     } else {
-      res.render('lobby', {error: ERROR_GONE});
+      render_gone(res);
     }
   });
 });
@@ -217,7 +239,7 @@ app.post('/lobby/:room/:writer/', function(req, res) {
   rooms.findOne({
     uid: req.param('room')
   }).on('error', function(e) {
-    res.render('lobby', {error: ERROR_GONE});
+    render_gone(res);
   }).on('success', function(room_doc) {
     if(room_doc) {
       if(room_doc.owner_uid == req.param('writer')) {
@@ -239,7 +261,7 @@ app.post('/lobby/:room/:writer/', function(req, res) {
                     new: true
                   }).on('error', function(e) {
                     console.log(e);
-                    res.render('lobby', {error: ERROR_GONE});
+                    render_gone(res);
                     complete(null, 'responded');
                   }).on('success', function(new_room_doc) {
                     room_doc = new_room_doc;
@@ -263,7 +285,7 @@ app.post('/lobby/:room/:writer/', function(req, res) {
                       'status': true
                     }));
                     if(e) {
-                      res.render('lobby', {error: ERROR_GONE});
+                      render_gone(res);
                       complete(null, 'responded');
                     } else {
                       res.redirect('/play/'+req.param('room')+'/'+req.param('writer')+'/');
@@ -283,12 +305,14 @@ app.post('/lobby/:room/:writer/', function(req, res) {
         });
       }
     } else {
-      res.render('lobby', {error: ERROR_GONE});
+      render_gone(res);
     }
   });
 });
 app.get('/api/1/polling/lobby/:room/', function(req, res) {
-  subscribe_long_polling(req, 'room_lobby_'+req.param('room'), function(result) {
+  subscribe_long_polling(req, 'room_lobby_'+req.param('room'), function() {
+    return true;
+  }, function(result) {
     res.json({'result': result});
   }, function(finish, continue_polling) {
     redis.get('room_status_'+req.param('room'), function(e, result) {
@@ -326,65 +350,89 @@ app.get('/play/:room/:writer/', function(req, res) {
   rooms.findOne({
     uid: req.param('room')
   }).on('error', function(e) {
-    res.render('play', {error: ERROR_GONE});
+    render_gone(res);
   }).on('success', function(room_doc) {
-    res.render('play', {room: room_doc, user_uid: req.param('writer')});
+    if(room_doc) {
+      position = room_doc.turns.indexOf(req.param('writer'));
+      if(position == 0) {
+        status = '';
+      } else {
+        if(room_doc.turns.length > 2) {
+          status = '('+position+')';
+        } else {
+          status = '(waiting)';
+        }
+      }
+      res.render('play', {room: room_doc, user_uid: req.param('writer'),
+          status: status});
+    } else {
+      render_gone(res);
+    }
   });
 });
 app.post('/api/1/add-word/:room/:writer/', function(req, res) {
   word = req.param('word').split(/\s/)[0];
   if(word) {
-    redis.getset('room_adding_word_'+req.param('room'), 1, function(e, old_value) {
-      if(e) {
-        return res.json(500, {result: 'error'});
-      } else if(old_value) {
-        return res.json({result: 'wrong-turn'});
-      } else {
-        rooms.findAndModify({
-          uid: req.param('room'),
-          "turns.0": req.param('writer')
-        }, {
-          $push: { 
-            story: word,
-            turns: req.param('writer')
-          }
-        }, {
-          fields: { _id: 1}
-        }).on('error', function(e) {
+    critical_section('room_adding_word_'+req.param('room'), 
+        function(release) {
+      rooms.findAndModify({
+        uid: req.param('room'),
+        "turns.0": req.param('writer')
+      }, {
+        $push: { 
+          story: word,
+          turns: req.param('writer')
+        }
+      }, {
+        fields: { _id: 1}
+      }).on('error', function(e) {
+        release(function() {
           res.json(500, {result: 'error'});
-        }).on('success', function(room_doc) {
-          //setTimeout(function() {
-          if(room_doc) {
-            rooms.findAndModify({
-              _id: room_doc._id
-            }, {
-              $pop: { turns: -1 }
-            }, {
-              new: true,
-              fields: { story: 1, turns: 1}
-            }).on('error', function(e) {
-              res.json(500, {result: 'error'});
-            }).on('success', function(room_doc) {
-              redis.del('room_adding_word_'+req.param('room'), function(e, result) {
-                var payload = {story: room_doc.story, turns: room_doc.turns};
-                redis_pub.publish('room_play_'+req.param('room'), 
-                    JSON.stringify(payload));
-                res.json({result: payload});
-              });
-            });
-          } else {
-            res.json({result: 'wrong-turn'});
-          }
-          //}, 1000);
         });
+      }).on('success', function(room_doc) {
+        //setTimeout(function() {
+        if(room_doc) {
+          rooms.findAndModify({
+            _id: room_doc._id
+          }, {
+            $pop: { turns: -1 }
+          }, {
+            new: true,
+            fields: { story: 1, turns: 1}
+          }).on('error', function(e) {
+            release(function() {
+              res.json(500, {result: 'error'});
+            });
+          }).on('success', function(room_doc) {
+            release(function() {
+              var payload = {story: room_doc.story, turns: room_doc.turns, writer: req.param('writer')};
+              redis_pub.publish('room_play_'+req.param('room'), 
+                  JSON.stringify(payload));
+              res.json({result: payload});
+            });
+          });
+        } else {
+          release(function() {
+            res.json({result: 'wrong-turn'});
+          });
+        }
+        //}, 1000);
+      });
+    }, function(e) {
+      if(e) {
+        res.json(500, {result: 'error'});
+      } else {
+        res.json({result: 'wrong-turn'});
       }
     });
   } else {
     res.json({result: 'empty-word'});
   }
 });
-app.get('/api/1/polling/play/:room/', function(req, res) {
+app.get('/api/1/polling/play/:room/:writer/', function(req, res) {
   subscribe_long_polling(req, 'room_play_'+req.param('room'), function(result) {
+    return result.writer != req.param('writer');
+  }, function(result) {
     res.json({'result': result});
   }, function(finish, continue_polling) {
     continue_polling();
@@ -412,10 +460,10 @@ app.get('/api/1/polling/play/:room/', function(req, res) {
 
 // CREATE
 
-app.get('/create', function(req, res) {
+app.get('/create/', function(req, res) {
   res.render('create')
 });
-app.post('/create', function(req, res) {
+app.post('/create/', function(req, res) {
   console.log(new Date());
   console.log(req.param('passphrase'));
   // Add passphrase

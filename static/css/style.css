@@ -110,6 +110,15 @@ input {
   border-radius: 4px;
 }
 
+.input-inline {
+  padding: 8px;
+  border-width: 2px;
+}
+
+.input-primary {
+  border-color: #800226;
+}
+
 .alert {
   background-color: #eee;
   padding: 12px;

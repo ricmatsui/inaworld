@@ -1,0 +1,12 @@
+extends base
+
+block title
+  | Not Found
+
+block header-title
+  | In a World
+  
+block content
+  p.alert.alert-error= error
+  p
+    a(href='/create/', class='btn btn-primary btn-block') Start a New Game
