@@ -1,23 +1,36 @@
 // ======================
+// CONSTANTS
+var ONE_SECOND = 1;
+var ONE_MINUTE = 60*ONE_SECOND;
+var FIVE_MINUTES = 5*ONE_MINUTE;
+var FIFTEEN_MINUTES = 15*ONE_MINUTE;
+var ONE_HOUR = 60*ONE_MINUTE;
+var ONE_DAY = 24*ONE_HOUR;
+var ONE_WEEK = 7*ONE_DAY;
+
+// ======================
 // OPTIONS
 DEBUG = false
 process.env.DEBUG = 'monk:*'
-var PASSPHRASE_TTL = DEBUG ? 60 : 15 * 60;
-var ROOM_TTL = DEBUG ? 5*60 : 24*60*60;
-var WRITER_TTL = DEBUG ? 5*60 : 24*60*60;
-var LONG_POLL_TIMEOUT = DEBUG ? 2000 : 20000;
-console.log(PASSPHRASE_TTL);
+var PASSPHRASE_TTL = DEBUG ? ONE_MINUTE : FIFTEEN_MINUTES;
+var ROOM_TTL = DEBUG ? FIVE_MINUTES : ONE_DAY;
+var WRITER_TTL = DEBUG ? FIVE_MINUTES : ONE_DAY;
+var STORY_TTL = DEBUG ? FIVE_MINUTES : ONE_WEEK;
+var LONG_POLL_TIMEOUT = (DEBUG ? 2*ONE_SECOND : 20*ONE_SECOND)*1000;
+var APP_ID = '1415436845376960'
+var BASE_URL = 'http://inaworld.herokuapp.com';
 
 // ======================
 // ERRORS
 var ERROR_TOO_MANY_PEOPLE = 'Oops, there are too many people playing, please try again later.';
 var ERROR_UNKNOWN = 'Oops, we ran into a problem. Please try again.';
 var ERROR_PASSPHRASE_TAKEN = 'Uh oh, someone has taken that passphrase for now, please try being more creative!';
-var ERROR_GONE = 'Oops, we couldn\'t find this game.'
+var ERROR_ROOM_NOT_FOUND = 'Oops, we couldn\'t find this game.'
 var ERROR_INCORRECT_PASSPHRASE = 'Oops, we couldn\'t find a game with that passphrase.'
+var ERROR_STORY_NOT_FOUND = 'Oops, we couldn\'t find this story.';
 
-function render_gone(res) {
-  res.render('gone', {error: ERROR_GONE});
+function render_404(res, error) {
+  res.status(404).render('404', {error: error});
 }
 
 // ======================
@@ -161,6 +174,10 @@ var rooms = db.get('rooms');
 rooms.ensureIndex('uid', {unique: true});
 rooms.ensureIndex('expireAt', {expireAfterSeconds: 0});
 
+var stories = db.get('stories');
+stories.ensureIndex('uid', {unique: true});
+stories.ensureIndex('expireAt', {expireAfterSeconds: 0});
+
 // ======================
 // APP
 var app = express();
@@ -177,6 +194,27 @@ app.set('view engine', 'jade');
 
 app.get('/', function(req, res) {
   res.render('index')
+});
+
+// STORY
+
+app.get('/story/:story/', function(req, res) {
+  stories.findOne({
+    uid: req.param('story')
+  }).on('error', function(e) {
+    render_404(res, ERROR_STORY_NOT_FOUND);
+  }).on('success', function(story_doc) {
+    if(story_doc) {
+      res.render('story', {
+        story: story_doc, 
+        app_id: APP_ID,
+        link: encodeURIComponent(BASE_URL+req.path),
+        redirect_uri: BASE_URL+req.path
+      });
+    } else {
+      render_404(res, ERROR_STORY_NOT_FOUND);
+    }
+  });
 });
 
 // JOIN
@@ -226,12 +264,12 @@ app.get('/lobby/:room/:writer/', function(req, res) {
   rooms.findOne({
     uid: req.param('room')
   }).on('error', function(e) {
-    render_gone(res);
+    render_404(res, ERROR_ROOM_NOT_FOUND);
   }).on('success', function(room_doc) {
     if(room_doc) {
       res.render('lobby', {room: room_doc, user_uid: req.param('writer')});
     } else {
-      render_gone(res);
+      render_404(res, ERROR_ROOM_NOT_FOUND);
     }
   });
 });
@@ -239,7 +277,7 @@ app.post('/lobby/:room/:writer/', function(req, res) {
   rooms.findOne({
     uid: req.param('room')
   }).on('error', function(e) {
-    render_gone(res);
+    render_404(res, ERROR_ROOM_NOT_FOUND);
   }).on('success', function(room_doc) {
     if(room_doc) {
       if(room_doc.owner_uid == req.param('writer')) {
@@ -261,7 +299,7 @@ app.post('/lobby/:room/:writer/', function(req, res) {
                     new: true
                   }).on('error', function(e) {
                     console.log(e);
-                    render_gone(res);
+                    render_404(res, ERROR_ROOM_NOT_FOUND);
                     complete(null, 'responded');
                   }).on('success', function(new_room_doc) {
                     room_doc = new_room_doc;
@@ -281,13 +319,13 @@ app.post('/lobby/:room/:writer/', function(req, res) {
                   complete(null, 'responded');
                 }).on('success', function() {
                   redis.setex('room_status_'+req.param('room'), ROOM_TTL, true, function(e, result) {
-                    redis_pub.publish('room_lobby_'+req.param('room'), JSON.stringify({
-                      'status': true
-                    }));
                     if(e) {
-                      render_gone(res);
+                      render_404(res, ERROR_ROOM_NOT_FOUND);
                       complete(null, 'responded');
                     } else {
+                      redis_pub.publish('room_lobby_'+req.param('room'), JSON.stringify({
+                        'status': true
+                      }));
                       res.redirect('/play/'+req.param('room')+'/'+req.param('writer')+'/');
                       complete(null, 'responded');
                     }
@@ -305,7 +343,7 @@ app.post('/lobby/:room/:writer/', function(req, res) {
         });
       }
     } else {
-      render_gone(res);
+      render_404(res, ERROR_ROOM_NOT_FOUND);
     }
   });
 });
@@ -350,7 +388,7 @@ app.get('/play/:room/:writer/', function(req, res) {
   rooms.findOne({
     uid: req.param('room')
   }).on('error', function(e) {
-    render_gone(res);
+    render_404(res, ERROR_ROOM_NOT_FOUND);
   }).on('success', function(room_doc) {
     if(room_doc) {
       position = room_doc.turns.indexOf(req.param('writer'));
@@ -366,7 +404,33 @@ app.get('/play/:room/:writer/', function(req, res) {
       res.render('play', {room: room_doc, user_uid: req.param('writer'),
           status: status});
     } else {
-      render_gone(res);
+      render_404(res, ERROR_ROOM_NOT_FOUND);
+    }
+  });
+});
+app.post('/play/:room/:writer', function(req, res) {
+  rooms.findOne({
+    uid: req.param('room')
+  }).on('error', function(e) {
+    render_404(res, ERROR_ROOM_NOT_FOUND);
+  }).on('success', function(room_doc) {
+    if(room_doc) {
+      if('action_finish' in req.body) {
+        async.map(room_doc.writers, function(writer, complete) {
+          complete(null, writer.name);
+        }, function(err, writer_names) {
+          stories.insert({
+            uid: make_uid(),
+            expireAt: (new Date()).add(STORY_TTL).second(),
+            text: room_doc.story.join(' '),
+            writers: writer_names
+          }).on('error', function(e) {
+            res.render('play', {'error': ERROR_TOO_MANY_STORIES});
+          }).on('success', function(story_doc) {
+            res.redirect('/story/'+story_doc.uid+'/');
+          });
+        });
+      }
     }
   });
 });

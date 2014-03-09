@@ -87,9 +87,26 @@ button.btn-block {
   border-color: #800226;
   color: white;
 }
-
 .btn-primary:hover {
   background-color: #99022E;
+}
+
+.btn-facebook {
+  background-color: #3b5998;
+  border-color: #3b5998;
+  color: white;
+}
+.btn-facebook:hover {
+  background-color: #3b5998;
+}
+
+.btn-twitter {
+  background-color: #55ACEE;
+  border-color: #55ACEE;
+  color: white;
+}
+.btn-twitter:hover {
+  background-color: #55ACEE;
 }
 
 form {

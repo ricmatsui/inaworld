@@ -26,6 +26,8 @@ block content
       |  
       span#status.muted= status
     button(type='submit', class='btn btn-primary') Submit
+  form#finish-form(method='post')
+    button(type='submit', name='action_finish', class='btn') Finish
 
 block scripts
   script.
