@@ -25,16 +25,23 @@ block content
         input#word.input-inline(type='text', name='word', placeholder='Word', autocapitalize='off', autofocus='autofocus', size=6, disabled='disabled')
       |  
       span#status.muted= status
-    button(type='submit', class='btn btn-primary') Submit
-  form#finish-form(method='post')
-    button(type='submit', name='action_finish', class='btn') Finish
+    button.btn.btn-primary.btn-block(type='submit') Submit Word
+    br
+    button.btn.btn-block(type='submit', name='action_finish') Finish Story
 
 block scripts
   script.
     (function() {
       var room_uid = '#{room.uid}';
       var writer_uid = '#{user_uid}';
-      var waitTime = 0;
+      var turn = '#{turn}';
+      var waitTime = 1;
+      var increaseWaitTime = function() {
+        waitTime = Math.min(10000, waitTime + 200);
+      }
+      var resetWaitTime = function() {
+        waitTime = 1;
+      }
       var retry = function(f) {
         setTimeout(f, waitTime);
       };
@@ -57,6 +64,7 @@ block scripts
           $story.html(data.result.story.join(' '));
         };
         var updateTurn = function(data) {
+          turn = data.result.turn;
           var position = data.result.turns.indexOf(writer_uid);
           if(position == 0) {
             $status.html('');
@@ -101,7 +109,7 @@ block scripts
         });
         var checkRoom = function() {            
           $.ajax({
-            url: '/api/1/polling/play/'+room_uid+'/'+writer_uid+'/', 
+            url: '/api/1/polling/play/'+room_uid+'/'+writer_uid+'/'+turn+'/',
             cache: false,
             dataType: 'json'
           }).done(function(data) {
@@ -110,8 +118,10 @@ block scripts
               updateWord(data);
               updateTurn(data);
             }
+            resetWaitTime();
             retry(checkRoom);
           }).fail(function() {
+            increaseWaitTime();
             retry(checkRoom);
           });
         };

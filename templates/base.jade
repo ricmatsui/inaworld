@@ -5,6 +5,19 @@ html
     meta(http-equiv='X-UA-Compatible', content='IE=edge')
     meta(name='viewport', content='width=device-width, initial-scale=1.0, user-scalable = no')
     meta(name='apple-mobile-web-app-capable', content='yes')
+    block facebook-meta
+      meta(property='og:title', content='Start a Story')
+      meta(property='og:url', content='http://inaworld.herokuapp.com')
+      meta(property='og:type', content='website')
+      meta(property='og:description', content='In a World is a party game where you play with your friends to create wild movie ideas! Since strong each player only gets to write strong one word at a time, who knows were the story will end?')
+    meta(property='og:site_name', 'In a World')
+    meta(property='fb:app_id', content='1415436845376960')
+    
+    block twitter-meta
+      meta(name='twitter:title' content='Start a Story')
+      meta(name='twitter:description' content='In a World is a party game where you play with your friends to create wild movie ideas! Since strong each player only gets to write strong one word at a time, who knows were the story will end?')
+    meta(name='twitter:card' content='summary')
+    meta(name='twitter:site' content='@playinaworld')
     title
       block title
       |  - In a World
