@@ -10,7 +10,7 @@ block header
 block content
   if error
     p.alert.alert-error= error
-  form#start-story-form
+  form#story-form
     p(style='text-align: left')
       span#story
         each word in room.story
@@ -26,8 +26,9 @@ block content
       |  
       span#status.muted= status
     button.btn.btn-primary.btn-block(type='submit') Submit Word
-    br
-    button.btn.btn-block(type='submit', name='action_finish') Finish Story
+  if room.owner_uid == user_uid
+    form#finish-form(method='post')
+      button.btn.btn-block(type='submit', name='action_finish') Finish Story
 
 block scripts
   script.
@@ -46,7 +47,7 @@ block scripts
         setTimeout(f, waitTime);
       };
       $(document).ready(function() {
-        var $startStoryForm = $('#start-story-form');
+        var $storyForm = $('#story-form');
         var $temporaryWord = $('#temporary-word');
         var $word = $('#word');
         var $story = $('#story');
@@ -76,7 +77,7 @@ block scripts
             }
           }
         };
-        $startStoryForm.submit(function(e) {
+        $storyForm.submit(function(e) {
           e.preventDefault();
           var word = $word.val();
           if(word) {
@@ -114,9 +115,13 @@ block scripts
             dataType: 'json'
           }).done(function(data) {
             if(data.result) {
-              updateStory(data);
-              updateWord(data);
-              updateTurn(data);
+              if(data.result.finished_story) {
+                window.location = '/story/'+data.result.finished_story+'/';
+              } else {
+                updateStory(data);
+                updateWord(data);
+                updateTurn(data);
+              }
             }
             resetWaitTime();
             retry(checkRoom);

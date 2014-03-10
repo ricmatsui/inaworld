@@ -141,7 +141,10 @@ function subscribe_long_polling(req, sub_channel,
 }
 
 function critical_section(key, lock_callback, fail_callback) {
-  redis.getset(key, 1, function(e, old_value) {
+  redis.multi().getset(key, 1)
+      .expire(key, ROOM_TTL)
+      .exec(function(e, results) {
+    old_value = results[0];
     if(e) {
       fail_callback(e);
     } else if(old_value) {
@@ -210,7 +213,7 @@ app.get('/story/:story/', function(req, res) {
       res.render('story', {
         story: story_doc,
         writers: writers,
-        beginning: story_doc.text.slice(0, 15)+'...',
+        beginning: story_doc.text.slice(0, 30).trim()+'...',
         app_id: APP_ID,
         link: encodeURIComponent(BASE_URL+req.path),
         redirect_uri: BASE_URL+req.path
@@ -432,7 +435,8 @@ app.post('/play/:room/:writer', function(req, res) {
     render_404(res, ERROR_ROOM_NOT_FOUND);
   }).on('success', function(room_doc) {
     if(room_doc) {
-      if('action_finish' in req.body) {
+      if('action_finish' in req.body 
+          && room_doc.owner_uid == req.param('writer')) {
         async.map(room_doc.writers, function(writer, complete) {
           complete(null, writer.name);
         }, function(err, writer_names) {
@@ -444,7 +448,14 @@ app.post('/play/:room/:writer', function(req, res) {
           }).on('error', function(e) {
             res.render('play', {'error': ERROR_TOO_MANY_STORIES});
           }).on('success', function(story_doc) {
-            res.redirect('/story/'+story_doc.uid+'/');
+            redis.setex('room_finished_story_'+req.param('room'), 
+                ROOM_TTL, story_doc.uid, function(e, result) {
+              redis_pub.publish('room_play_'+req.param('room'), 
+                  JSON.stringify({
+                'finished_story': story_doc.uid
+              }));
+              res.redirect('/story/'+story_doc.uid+'/');
+            });
           });
         });
       }
@@ -471,7 +482,6 @@ app.post('/api/1/add-word/:room/:writer/', function(req, res) {
           res.json(500, {result: 'error'});
         });
       }).on('success', function(room_doc) {
-        //setTimeout(function() {
         if(room_doc) {
           rooms.findAndModify({
             _id: room_doc._id
@@ -512,7 +522,6 @@ app.post('/api/1/add-word/:room/:writer/', function(req, res) {
             res.json({result: 'wrong-turn'});
           });
         }
-        //}, 1000);
       });
     }, function(e) {
       if(e) {
@@ -531,41 +540,51 @@ app.get('/api/1/polling/play/:room/:writer/:turn/', function(req, res) {
   }, function(result) {
     res.json({'result': result});
   }, function(finish, continue_polling) {
-    redis.get('room_turn_'+req.param('room'), 
-        function(e, turn) {
+    redis.get('room_finished_story_'+req.param('room'),
+        function(e, finished_story) {
       if(e) {
         res.json(500, {'result': 'error'});
         finish();
-      } else if(turn) {
-        if(turn == req.param('turn')) {
-          continue_polling();
-        } else {
-          rooms.findOne({
-            uid: req.param('room')
-          }, {
-            story: 1,
-            turns: 1
-          }).on('error', function(e) {
+      } else if(finished_story) {
+        res.json({'result': {'finished_story': finished_story}});
+      } else {
+        redis.get('room_turn_'+req.param('room'), 
+            function(e, turn) {
+          if(e) {
             res.json(500, {'result': 'error'});
             finish();
-          }).on('success', function(room_doc) {
-            if(room_doc) {
-              var payload = {
-                story: room_doc.story, 
-                turns: room_doc.turns,
-                turn: turn
-              };
-              res.json(payload);
-              finish();
+          } else if(turn) {
+            if(turn == req.param('turn')) {
+              continue_polling();
             } else {
-              res.json(500, {'result': 'error'});
-              finish();
+              rooms.findOne({
+                uid: req.param('room')
+              }, {
+                story: 1,
+                turns: 1
+              }).on('error', function(e) {
+                res.json(500, {'result': 'error'});
+                finish();
+              }).on('success', function(room_doc) {
+                if(room_doc) {
+                  var payload = {
+                    story: room_doc.story, 
+                    turns: room_doc.turns,
+                    turn: turn
+                  };
+                  res.json({'result': payload});
+                  finish();
+                } else {
+                  res.json(500, {'result': 'error'});
+                  finish();
+                }
+              });
             }
-          });
-        }
-      } else {
-        res.json(500, {'result': 'error'});
-        finish();
+          } else {
+            res.json(500, {'result': 'error'});
+            finish();
+          }
+        });
       }
     });
   }, function(complete) {
@@ -590,7 +609,7 @@ app.get('/api/1/polling/play/:room/:writer/:turn/', function(req, res) {
               turns: room_doc.turns,
               turn: turn
             };
-            res.json(payload);
+            res.json({'result': payload});
             complete();
           } else {
             complete();
