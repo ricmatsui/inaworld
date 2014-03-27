@@ -26,6 +26,8 @@ block content
     a.btn.btn-block.btn-facebook(href='https://www.facebook.com/dialog/feed?app_id='+app_id+'&display=page&link='+link+'&redirect_uri='+redirect_uri) Share on Facebook
   p
     a.btn.btn-block.btn-twitter(href='https://twitter.com/intent/tweet?url='+link) Share on Twitter
+  if room
+    p
+      a.btn.btn-block.btn-primary(href='/play-again/'+room+'/'+writer+'/') Play again!
   p
     a(href='/', class='btn btn-block') Start your own story
-  

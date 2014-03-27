@@ -4,6 +4,8 @@ block title
   | Home
 
 block content
+  if error
+    p.alert.alert-error= error
   p
     strong In a World 
     | is a party game where you play with your friends to create wild movie ideas!

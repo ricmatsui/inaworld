@@ -121,7 +121,7 @@ block scripts
           }).done(function(data) {
             if(data.result) {
               if(data.result.finished_story) {
-                window.location = '/story/'+data.result.finished_story+'/';
+                window.location = '/story/'+data.result.finished_story+'/?room='+room_uid+'&writer='+writer_uid;
               } else {
                 updateStory(data);
                 updateWord(data);

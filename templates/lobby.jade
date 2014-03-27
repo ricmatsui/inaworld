@@ -13,7 +13,7 @@ block content
     form(method='post')
       #room
         mixin show_room(room, user_uid)
-      if room.owner_uid == user_uid
+      if room.owner_uid == user_uid && room.passphrase
         h2 Get Some Friends To Join! 
         p
           | Have your friends go to:

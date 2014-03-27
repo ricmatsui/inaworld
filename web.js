@@ -45,6 +45,7 @@ var path = require('path');
 var Chance = require('chance');
 var debug = require('debug')('inaworld');
 var async = require('async');
+var util = require('util');
 
 // ======================
 // RANDOM
@@ -218,10 +219,27 @@ app.get('/story/:story/', function(req, res) {
         beginning: story_doc.text.slice(0, 30).trim()+'...',
         app_id: APP_ID,
         link: encodeURIComponent(BASE_URL+req.path),
-        redirect_uri: BASE_URL+req.path
+        redirect_uri: BASE_URL+req.originalUrl,
+        room: req.param('room'),
+        writer: req.param('writer')
       });
     } else {
       render_404(res, ERROR_STORY_NOT_FOUND);
+    }
+  });
+});
+
+// PLAY AGAIN
+
+app.get('/play-again/:room/:writer/', function(req, res) {
+  redis.get('room_next_room_'+req.param('room'),
+      function(e, next_room) {
+    if(e) {
+      res.render('index', {error: ERROR_UNKNOWN});
+    } else if(next_room) {
+      res.redirect('/join/'+next_room+'/'+req.param('writer')+'/');
+    } else {
+      res.render('index', {error: ERROR_ROOM_NOT_FOUND});
     }
   });
 });
@@ -456,7 +474,42 @@ app.post('/play/:room/:writer', function(req, res) {
                   JSON.stringify({
                 'finished_story': story_doc.uid
               }));
-              res.redirect('/story/'+story_doc.uid+'/');
+              owner_uid = make_uid();
+              rooms.insert({
+                uid: make_uid(),
+                expireAt: (new Date()).add(ROOM_TTL).second(),
+                story: ['In', ' a', ' world'],
+                writers: [],
+                turns: [],
+                owner_uid: owner_uid
+              }).on('error', function(e) {
+                console.log('CREATE ROOM: Error');
+                res.render('play', {'error': ERROR_TOO_MANY_PEOPLE});
+              }).on('success', function(next_room_doc) {
+                redis.setex('room_turn_'+next_room_doc.uid, ROOM_TTL, 
+                    1, function(e, result) {
+                  if(e) {
+                    res.render('play', {'error': ERROR_TOO_MANY_PEOPLE});
+                  } else {
+                    redis.setex('room_next_room_'+room_doc.uid, ROOM_TTL,
+                        next_room_doc.uid, function(e, result) {
+                      if(e) {
+                        res.render('play', {'error': ERROR_TOO_MANY_PEOPLE});
+                      } else {
+                        async.map(['room_lobby_'+req.param('room'), 'room_play_'+req.param('room')], 
+                            function(item, complete) {
+                          setup_long_polling(item, function(e, result) {
+                            complete();
+                          });      
+                        }, function(err, results) {
+                          res.redirect(util.format('/story/%s/?room=%s&writer=%s',
+                              story_doc.uid, room_doc.uid, owner_uid));
+                        });
+                      }
+                    });
+                  }
+                });
+              });
             });
           });
         });
