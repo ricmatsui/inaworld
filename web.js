@@ -19,6 +19,7 @@ var STORY_TTL = DEBUG ? FIVE_MINUTES : ONE_WEEK;
 var LONG_POLL_TIMEOUT = (DEBUG ? 2*ONE_SECOND : 20*ONE_SECOND)*1000;
 var APP_ID = '1415436845376960'
 var BASE_URL = 'https://inaworld.herokuapp.com';
+var PUNCTUATION = ['.', ',', '?'];
 
 // ======================
 // ERRORS
@@ -186,8 +187,9 @@ stories.ensureIndex('expireAt', {expireAfterSeconds: 0});
 var app = express();
 
 app.use(logfmt.requestLogger());
-app.use(express.static(path.join(__dirname, 'static')));
-app.use(express.favicon());
+app.use(express.compress());
+app.use(express.static(path.join(__dirname, 'static'), {maxAge: ONE_WEEK*1000}));
+app.use(express.favicon(path.join(__dirname + '/favicon.ico')));
 app.use(express.bodyParser());
 
 app.set('views', path.join(__dirname, 'templates'));
@@ -443,7 +445,7 @@ app.post('/play/:room/:writer', function(req, res) {
           stories.insert({
             uid: make_uid(),
             expireAt: (new Date()).add(STORY_TTL).second(),
-            text: room_doc.story.join(' '),
+            text: room_doc.story.join(''),
             writers: writer_names
           }).on('error', function(e) {
             res.render('play', {'error': ERROR_TOO_MANY_STORIES});
@@ -463,8 +465,18 @@ app.post('/play/:room/:writer', function(req, res) {
   });
 });
 app.post('/api/1/add-word/:room/:writer/', function(req, res) {
-  word = req.param('word').split(/\s/)[0];
-  if(word) {
+  words = req.param('word').split(/\s/);
+  if(words && words[0]) {
+    first_word = words[0];
+    if(PUNCTUATION.indexOf(first_word[0]) == -1) {
+      word = ' '+first_word;
+    } else {
+      if(words.length == 1) {
+        word = first_word;
+      } else {
+        word = first_word + ' ' + words[1];
+      }
+    }
     critical_section('room_adding_word_'+req.param('room'), 
         function(release) {
       rooms.findAndModify({
@@ -671,7 +683,7 @@ function create_room(req, res, passphrase_doc) {
     uid: make_uid(),
     expireAt: (new Date()).add(ROOM_TTL).second(),
     passphrase: passphrase_doc.name,
-    story: ['In', 'a', 'world'],
+    story: ['In', ' a', ' world'],
     writers: [],
     turns: [],
     owner_uid: owner_uid

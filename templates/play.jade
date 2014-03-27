@@ -15,8 +15,6 @@ block content
       span#story
         each word in room.story
           = word
-          | 
-      | 
       span#temporary-word
       | 
       if user_uid == room.turns[0]
@@ -33,6 +31,7 @@ block content
 block scripts
   script.
     (function() {
+      var PUNCTUATION = ['.', ',', '?'];
       var room_uid = '#{room.uid}';
       var writer_uid = '#{user_uid}';
       var turn = '#{turn}';
@@ -62,7 +61,7 @@ block scripts
           }
         };
         var updateStory = function(data) {
-          $story.html(data.result.story.join(' '));
+          $story.html(data.result.story.join(''));
         };
         var updateTurn = function(data) {
           turn = data.result.turn;
@@ -81,7 +80,13 @@ block scripts
           e.preventDefault();
           var word = $word.val();
           if(word) {
-            $temporaryWord.html(word);
+            var temporaryWord;
+            if(PUNCTUATION.indexOf(word[0]) == -1) {
+              temporaryWord = ' '+word
+            } else {
+              temporaryWord = word;
+            }
+            $temporaryWord.html(temporaryWord);
             $word.val('');
             $word.trigger('click');
             $.ajax({
