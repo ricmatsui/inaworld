@@ -1,3 +1,5 @@
 node_modules
+venv
 newrelic_agent.log
 dump.rdb
+*.pyc

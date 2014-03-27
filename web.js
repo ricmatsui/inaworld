@@ -731,7 +731,7 @@ app.post('/create/', function(req, res) {
 });
 
 function create_room(req, res, passphrase_doc) {
-  owner_uid = make_uid();
+  var owner_uid = make_uid();
   rooms.insert({
     uid: make_uid(),
     expireAt: (new Date()).add(ROOM_TTL).second(),
