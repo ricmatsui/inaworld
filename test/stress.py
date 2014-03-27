@@ -13,8 +13,8 @@ parser.add_argument('target')
 args = parser.parse_args()
 
 RANDOM_LENGTH = 32
-TEST_AMOUNT = 256
-POOL_SIZE = 32
+TEST_AMOUNT = 2048
+POOL_SIZE = 64
 
 def get_random_string():
   return ''.join(random.choice(string.digits)
@@ -32,6 +32,8 @@ def get_browser():
   return browser
 
 def run_game(i):
+  p1 = None
+  p2 = None
   try:
     p1 = get_browser()
     p1.open(args.target)

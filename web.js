@@ -62,25 +62,18 @@ function make_uid() {
 
 // ======================
 // REDIS
-var redisURL = require('redis-url');
-var redis = redisURL.connect(process.env.REDISTOGO_URL);
-var password, database, url = require('url');
-var parsedUrl  = url.parse(process.env.REDISTOGO_URL || '');
-var parsedAuth = (parsedUrl.auth || '').split(':');
+var url = require('url');
+var redisURL = url.parse(process.env.REDISCLOUD_URL || '');
 
-function create_pub_sub_redis() {
-  var redis = require('redis').createClient(parsedUrl.port, parsedUrl.hostname);
-
-  if (password = parsedAuth[1]) {
-      redis.auth(password, function(err) {
-          if (err) throw err;
-      });
-  }
-  
+function create_redis() {
+  var redis = require('redis').createClient(redisURL.port, redisURL.hostname, {no_ready_check: true});
+  redis.auth((redisURL.auth || '').split(':')[1]);
   return redis;
 }
-var redis_pub = create_pub_sub_redis();
-var redis_sub = create_pub_sub_redis();
+
+var redis = create_redis();
+var redis_pub = create_redis();
+var redis_sub = create_redis();
 var redis_uid = make_uid();
 
 function setup_long_polling(sub_channel, callback) {
