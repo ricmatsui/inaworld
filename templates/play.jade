@@ -34,7 +34,7 @@ block scripts
       var PUNCTUATION = ['.', ',', '?'];
       var room_uid = '#{room.uid}';
       var writer_uid = '#{user_uid}';
-      var turn = '#{turn}';
+      var turn = '#{room.turn}';
       var waitTime = 1;
       var increaseWaitTime = function() {
         waitTime = Math.min(10000, waitTime + 200);
