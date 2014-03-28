@@ -13,7 +13,7 @@ var ONE_WEEK = 7 * ONE_DAY;
 // ======================
 // OPTIONS
 var DEBUG = false;
-process.env.DEBUG = 'monk:*,inaworld';
+process.env.DEBUG = (DEBUG ? 'monk:*,' : '') + 'inaworld';
 var PASSPHRASE_TTL = DEBUG ? ONE_MINUTE : FIFTEEN_MINUTES;
 var ROOM_TTL = DEBUG ? FIVE_MINUTES : ONE_DAY;
 var WRITER_TTL = DEBUG ? FIVE_MINUTES : ONE_DAY;

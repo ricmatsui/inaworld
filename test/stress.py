@@ -7,6 +7,8 @@ from multiprocessing import Pool
 import random
 import string
 import time
+import urllib
+import re
 
 parser = argparse.ArgumentParser()
 parser.add_argument('target')
@@ -15,6 +17,7 @@ args = parser.parse_args()
 RANDOM_LENGTH = 32
 TEST_AMOUNT = 2048
 POOL_SIZE = 64
+STORY_LENGTH = 32
 
 def get_random_string():
   return ''.join(random.choice(string.digits)
@@ -72,6 +75,20 @@ def run_game(i):
         time.sleep(1)
         p1 = get_browser()
         p1.open(lobby_url)
+    
+    p1_info = re.search(r'/(\w+)/(\w+)/$', p1.geturl())
+    p2_info = re.search(r'/(\w+)/(\w+)/$', p2.geturl())
+    room, p1_writer = p1_info.group(1), p1_info.group(2)
+    room, p2_writer = p2_info.group(1), p2_info.group(2)
+    play_url = p1.geturl();
+    for j in xrange(STORY_LENGTH):
+      data = urllib.urlencode({'word': get_random_string()})
+      p1.open(args.target+'api/1/add-word/{}/{}/'.format(room, p1_writer), data=data);
+      
+      data = urllib.urlencode({'word': get_random_string()})
+      p2.open(args.target+'api/1/add-word/{}/{}/'.format(room, p2_writer), data=data);
+    
+    p1.open(play_url)
     p1.select_form(nr=1)
     p1.submit(name='action_finish')
     print '** TEST #{} **'.format(i)
@@ -81,12 +98,14 @@ def run_game(i):
     print p2
     print type(e)
     print e
+    
     print '** TEST #{} FAIL **'.format(i)
     return False
 
 if __name__ == '__main__':
 
   run_game(1)
+  
   pool = Pool(processes=POOL_SIZE)
   results = pool.map(run_game, range(TEST_AMOUNT))
   passed_count = len(filter(lambda x: x, results))
