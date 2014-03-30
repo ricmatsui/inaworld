@@ -1,27 +1,9 @@
 /*global process: false, require: false */
 
 // ======================
-// CONSTANTS
-var ONE_SECOND = 1;
-var ONE_MINUTE = 60 * ONE_SECOND;
-var FIVE_MINUTES = 5 * ONE_MINUTE;
-var FIFTEEN_MINUTES = 15 * ONE_MINUTE;
-var ONE_HOUR = 60 * ONE_MINUTE;
-var ONE_DAY = 24 * ONE_HOUR;
-var ONE_WEEK = 7 * ONE_DAY;
-
-// ======================
 // OPTIONS
 var DEBUG = false;
-process.env.DEBUG = (DEBUG ? 'monk:*,' : '') + 'inaworld';
-var PASSPHRASE_TTL = DEBUG ? ONE_MINUTE : FIFTEEN_MINUTES;
-var ROOM_TTL = DEBUG ? FIVE_MINUTES : ONE_DAY;
-var WRITER_TTL = DEBUG ? FIVE_MINUTES : ONE_DAY;
-var STORY_TTL = DEBUG ? FIVE_MINUTES : ONE_WEEK;
-var LONG_POLL_TIMEOUT = (DEBUG ? 2 * ONE_SECOND : 20 * ONE_SECOND) * 1000;
-var APP_ID = '1415436845376960';
-var BASE_URL = 'https://inaworld.herokuapp.com';
-var PUNCTUATION = ['.', ',', '?'];
+process.env.DEBUG = (DEBUG ? 'monk:*,' : '') + 'inaworld:*';
 
 // ======================
 // ERRORS
@@ -44,33 +26,14 @@ var express = require("express");
 var logfmt = require("logfmt");
 var monk = require('monk');
 var path = require('path');
-var Chance = require('chance');
 var debug = require('debug')('inaworld');
 var async = require('async');
 var util = require('util');
 
-// ======================
-// Util
-
-/*
- * Returns a new expiration date
- */
-function make_expire_at(seconds_in_future) {
-  return (new Date()).add(seconds_in_future).second();
-}
-
-// ======================
-// RANDOM
-var random = new Chance();
-
-var unique_opts = {
-  pool: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
-  length: 16
-};
-
-function make_uid() {
-  return random.string(unique_opts);
-}
+var models = require('./models.js');
+var constants = require('./constants.js')(DEBUG);
+var random_util = require('./random_util.js');
+var date_util = require('./date_util.js');
 
 // ======================
 // REDIS
@@ -86,11 +49,11 @@ function create_redis() {
 var redis = create_redis();
 var redis_pub = create_redis();
 var redis_sub = create_redis();
-var redis_uid = make_uid();
+var redis_uid = random_util.make_uid();
 
 function setup_long_polling(sub_channel, callback) {
   var sub_channel_key = redis_uid+'_'+sub_channel;
-  redis.setex(sub_channel_key, ROOM_TTL, 0, callback);
+  redis.setex(sub_channel_key, constants.ROOM_TTL, 0, callback);
 }
 function subscribe_long_polling(req, sub_channel, 
     accept_message_callback, message_callback, 
@@ -141,7 +104,7 @@ function subscribe_long_polling(req, sub_channel,
           poll_timeout_callback(function() {
             complete();
           });
-        }, LONG_POLL_TIMEOUT);
+        }, constants.LONG_POLL_TIMEOUT);
       });
     }
   ]);
@@ -149,7 +112,7 @@ function subscribe_long_polling(req, sub_channel,
 
 function critical_section(key, lock_callback, fail_callback) {
   redis.multi().getset(key, 1)
-      .expire(key, ROOM_TTL)
+      .expire(key, constants.ROOM_TTL)
       .exec(function(e, results) {
     old_value = results[0];
     if(e) {
@@ -194,12 +157,16 @@ var app = express();
 
 app.use(logfmt.requestLogger());
 app.use(express.compress());
-app.use(express.static(path.join(__dirname, 'static'), {maxAge: ONE_WEEK*1000}));
+app.use(express.static(path.join(__dirname, 'static'), {maxAge: constants.ONE_WEEK*1000}));
 app.use(express.favicon(path.join(__dirname + '/favicon.ico')));
 app.use(express.bodyParser());
 
 app.set('views', path.join(__dirname, 'templates'));
 app.set('view engine', 'jade');
+
+var create = require('./create.js')(rooms, passphrases, {
+  setup_long_polling: setup_long_polling
+}, constants);
 
 // INDEX
 
@@ -222,9 +189,9 @@ app.get('/story/:story/', function(req, res) {
         story: story_doc,
         writers: writers,
         beginning: story_doc.text.slice(0, 30).trim()+'...',
-        app_id: APP_ID,
-        link: encodeURIComponent(BASE_URL+req.path),
-        redirect_uri: BASE_URL+req.originalUrl,
+        app_id: constants.APP_ID,
+        link: encodeURIComponent(constants.BASE_URL+req.path),
+        redirect_uri: constants.BASE_URL+req.originalUrl,
         room: req.param('room'),
         writer: req.param('writer')
       });
@@ -265,7 +232,7 @@ app.post('/join/', function(req, res) {
     res.render('join', {error: ERROR_INCORRECT_PASSPHRASE});
   }).on('success', function(passphrase_doc) {
     if(passphrase_doc) {
-      res.redirect('/join/'+passphrase_doc.room_uid+'/'+make_uid()+'/');
+      res.redirect('/join/'+passphrase_doc.room_uid+'/'+random_util.make_uid()+'/');
     } else {
       res.render('join', {error: ERROR_INCORRECT_PASSPHRASE});
     }
@@ -274,41 +241,73 @@ app.post('/join/', function(req, res) {
 
 // JOIN ROOM
 
+var join = require('./join.js')(rooms, { redis_pub: redis_pub });
+
+/**
+ * Get join room view
+ */
 app.get('/join/:room/:writer/', function(req, res) {
   res.render('join_room');
 });
+/**
+ * Process join room view
+ */
 app.post('/join/:room/:writer/', function(req, res) {
-  rooms.findAndModify({
-    uid: req.param('room'),
-  }, {
-    $push: { writers: { uid: req.param('writer'), name: req.param('name') }}
-  }, {
-    new: true
-  }).on('error', function(e) {
-    res.render('join_room', {error: ERROR_UNKNOWN});
-  }).on('success', function(room_doc) {
-    redis_pub.publish('room_lobby_'+req.param('room'), JSON.stringify({
-      writers: room_doc.writers
-    }));
-    res.redirect('/lobby/'+req.param('room')+'/'+req.param('writer')+'/');
+  join.join_room(req.param('room'), req.param('writer'), req.param('name'), 
+      function(error) {
+    if(error) {
+      res.render('join_room', {error: ERROR_UNKNOWN});
+    } else {
+      res.redirect('/lobby/'+req.param('room')+'/'+req.param('writer')+'/');
+    }
+  });
+});
+/**
+ * Join rom API
+ */
+app.post('/api/1/join/:room/:writer/', function(req, res) {
+  join.join_room(req.param('room'), req.param('writer'), req.param('name'),
+      function(error) {
+    if(error) {
+      res.json(500, {'result': error});
+    } else {
+      res.json({'result': 'success'});
+    }
   });
 });
 
 // LOBBY
 
+var lobby = require('./lobby.js')(rooms, { redis_pub: redis_pub });
+
 /*
  * Get lobby view
  */
 app.get('/lobby/:room/:writer/', function(req, res) {
-  rooms.findOne({
-    uid: req.param('room')
-  }).on('error', function(e) {
-    render_404(res, ERROR_ROOM_NOT_FOUND);
-  }).on('success', function(room_doc) {
-    if(room_doc) {
-      res.render('lobby', {room: room_doc, user_uid: req.param('writer')});
+  lobby.lobby(req.param('room'), function(error, room_doc) {
+    if(error) {
+      if(error === 'not-found') {
+        render_404(res, ERROR_ROOM_NOT_FOUND);
+      } else if(error === 'unknown') {
+        res.render('lobby', {error: ERROR_UNKNOWN});
+      }
     } else {
-      render_404(res, ERROR_ROOM_NOT_FOUND);
+      res.render('lobby', {room: room_doc, user_uid: req.param('writer')});
+    }
+  });
+});
+/*
+ * Get lobby api view
+ */
+app.get('/api/1/lobby/:room/', function(req, res) {
+  lobby.lobby(req.param('room'), function(error, room_doc) {
+    if(error) {
+      res.json(500, {result: error});
+    } else {
+      res.json({
+        'writers': room_doc.writers,
+        'passphrase': room_doc.passphrase
+      });
     }
   });
 });
@@ -549,8 +548,8 @@ function finish_story(res, room_doc, complete) {
       // Make story
       function(complete) {
         stories.insert({
-          uid: make_uid(),
-          expireAt: make_expire_at(STORY_TTL),
+          uid: random_util.make_uid(),
+          expireAt: date_util.make_expire_at(constants.STORY_TTL),
           text: room_doc.story.join(''),
           writers: writer_names
         }).on('error', function(e) {
@@ -585,8 +584,8 @@ function finish_story(res, room_doc, complete) {
       },
       // Make next room
       function(story_doc, complete) {
-        var owner_uid = make_uid();
-        var room = make_room(owner_uid);
+        var owner_uid = random_util.make_uid();
+        var room = create.make_room(owner_uid);
         rooms.insert(room).on('error', function(error) {
           complete('full');
         }).on('success', function(next_room_doc) {
@@ -682,7 +681,7 @@ app.post('/api/1/add-word/:room/:writer/', function(req, res) {
   if(words && words[0]) {
     first_word = words[0];
     // If first letter not punctuation, add a space
-    if(PUNCTUATION.indexOf(first_word[0]) == -1) {
+    if(constants.PUNCTUATION.indexOf(first_word[0]) == -1) {
       word = ' '+first_word;
     } else {
       // Otherwise, if just punctuation, add it
@@ -844,129 +843,35 @@ app.get('/create/', function(req, res) {
  * Process create page
  */
 app.post('/create/', function(req, res) {
-  var passphrase = null;
-  async.series([
-    // Try to register new passphrase
-    function(complete) {
-      passphrases.insert({
-        name: req.param('passphrase'),
-        expireAt: make_expire_at(PASSPHRASE_TTL)
-      }).on('error', function(error) {
-        debug('duplicate passphrase, attempting to update');
-        complete();
-      }).on('success', function(passphrase_doc) {
-        passphrase = passphrase_doc;
-        complete();
-      });
-    },
-    // If not successful, try updating current if expired
-    function(complete) {
-      if(passphrase) {
-        complete();
-      } else {
-        // Find if expired
-        passphrases.findAndModify({
-          name: req.param('passphrase'),
-          expireAt: { $lt: new Date() }
-        }, {
-          $set: { expireAt: make_expire_at(PASSPHRASE_TTL) }
-        }).on('error', function(e) {
-          complete('unknown');
-        }).on('success', function(passphrase_doc) {
-          if(passphrase_doc) {
-            // Passphrase already expired
-            passphrase = passphrase_doc;
-          }
-          complete();
-        });
-      }
-    }
-  ], function(error, results) {
+  create.create_room_with_passphrase(req.param('passphrase'),
+      function(error, room_doc, owner_uid) {
     if(error) {
-      debug('error registering passphrase: '+error);
-      if(error === 'unknown') {
-        res.render('create', {'error': ERROR_UNKNOWN});
-      }
-    } else if(passphrase) {
-      create_room(req, res, passphrase);
-    } else {
-      debug('passphrase not expired');
-      res.render('create', {'error': ERROR_PASSPHRASE_TAKEN});
-    }
-  });
-});
-
-/**
- * Makes a new room with owner and default values
- */
-function make_room(owner_uid) {
-  return {
-    uid: make_uid(),
-    expireAt: (new Date()).add(ROOM_TTL).second(),
-    story: ['In', ' a', ' world'],
-    writers: [],
-    turns: [],
-    turn: 1,
-    started: false,
-    finished: false,
-    owner_uid: owner_uid
-  };
-}
-
-/**
- * Creates a new room and updates the passphrase to link to it.
- * Redirects to `join`.
- */
-function create_room(req, res, passphrase_doc) {
-  // Create a new owner UID
-  var owner_uid = make_uid();
-  
-  async.waterfall([
-    // Insert new room
-    function(complete) {
-      var room = make_room(owner_uid);
-      room.passphrase = passphrase_doc.name;
-      rooms.insert(room).on('error', function(error) {
-        complete('full');
-      }).on('success', function(room_doc) {
-        complete(null, room_doc);
-      });
-    },
-    // Update passphrase
-    function(room_doc, complete) {
-      passphrases.updateById(passphrase_doc._id, {
-        $set: { room_uid: room_doc.uid }
-      }).on('error', function(error) {
-        complete('unknown');
-      }).on('success', function() {
-        complete(null, room_doc);
-      });
-    },
-    // Set up long polling
-    function(room_doc, complete) {
-      async.map(['room_lobby_'+req.param('room'), 'room_play_'+req.param('room')], 
-          function(item, complete) {
-        setup_long_polling(item, function(e, result) {
-          complete();
-        });
-      }, function(e, results) {
-        complete(null, room_doc);
-      });
-    }
-  ], function(error, room_doc) {
-    if(error) {
-      debug('error creating room: '+error);
       if(error === 'full') {
         res.render('create', {'error': ERROR_TOO_MANY_PEOPLE});
       } else if(error === 'unknown') {
         res.render('create', {'error': ERROR_UNKNOWN});
+      } else if(error === 'taken') {
+        res.render('create', {'error': ERROR_PASSPHRASE_TAKEN});
       }
     } else {
       res.redirect(util.format('/join/%s/%s/',
           room_doc.uid, owner_uid));
     }
   });
-}
+});
+/*
+ * Create api
+ */
+app.post('/api/1/create/', function(req, res) {
+  create.create_room_with_passphrase(req.param('passphrase'),
+      function(error, room_doc, owner_uid) {
+    if(error) {
+      res.json(500, {'result': error});
+    } else {
+      res.json({'room': room_doc.uid, 'owner': owner_uid});
+    }
+  });
+});
 
 // RUN
 
