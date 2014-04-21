@@ -1,10 +1,15 @@
 # In a World
 
-In a World is a is a party game where you play with your friends to create wild stories! Since each player only gets to write one word at a time, who knows where it will go?
+In a World is a party game where you play with your friends to create wild stories! Since each player only gets to write one word at a time, who knows where it will go?
 
 ### Demo
 
-Visit [inaworld.herokuapp.com](http://inaworld.herokuapp.com) for a working demo.
+Visit [inaworld.herokuapp.com](http://inaworld.herokuapp.com) for a live demo!
+
+#### Screenshots
+
+![Home](screenshots/home.png) 
+![Writing](screenshots/writing.png)
 
 ### Features
 
